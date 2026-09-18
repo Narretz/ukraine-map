@@ -7,6 +7,9 @@ const { chromium } = require('../mcp/node_modules/playwright');
 const root = path.resolve(__dirname, '..');
 const empty = { type:'FeatureCollection', features:[] };
 const square = (x, size=1) => [[x,48],[x+size,48],[x+size,48+size],[x,48+size],[x,48]];
+const settlements = { type:'FeatureCollection', features:[['Smoketown',30000,36.0,48.5],['Middleton',5000,35.8,48.3],['Hamlet',500,36.2,48.7]]
+    .map(([name,population,lng,lat],i)=>({type:'Feature', properties:{name, 'name:en':name, population:String(population), place:'town', osm_id:1000+i, osm_type:'nodes'},
+        geometry:{type:'Point', coordinates:[lng,lat]}})) };
 function territory(date) {
     return { type:'FeatureCollection', features:[{type:'Feature', properties:{stroke:'#a52714',fill:'#a52714','fill-opacity':0.3,fixtureDate:date},
         geometry:{type:'Polygon',coordinates:[square(date === '2026-01-01' ? 35 : 35.5)]}}] };
@@ -49,6 +52,7 @@ const server = http.createServer((req,res) => {
                 return route.fulfill({contentType:'application/vnd.google-earth.kml+xml',body:
                     `<kml xmlns="http://www.opengis.net/kml/2.2"><Document><Placemark><name>Russian Armed Forces</name><Polygon><outerBoundaryIs><LinearRing><coordinates>${coordinates}</coordinates></LinearRing></outerBoundaryIs></Polygon></Placemark></Document></kml>`});
             }
+            if(url.pathname.endsWith('settlements.json')) return route.fulfill({json:settlements});
             if(url.pathname.endsWith('.json') || url.pathname.endsWith('.geojson')) return route.fulfill({json:empty});
             if(route.request().resourceType() === 'stylesheet') return route.fulfill({contentType:'text/css',body:''});
             return route.fulfill({status:204,body:''});
@@ -97,6 +101,37 @@ const server = http.createServer((req,res) => {
         assert.deepEqual(errors,[]);
         fs.mkdirSync(path.join(root,'output/playwright'),{recursive:true});
         await page.screenshot({path:path.join(root,'output/playwright/review-fixes.png')});
+        // Settlements: Min Population applies on its own, and the symbols stay
+        // clickable under a layer switched on after them.
+        await page.evaluate(()=>dashboard.map.setView([48.5,36.0],9,{animate:false}));
+        await page.locator('[data-section="settlements"] .accordion-header').click();
+        await page.locator('label').filter({has:page.locator('#show-settlements')}).click();
+        await page.waitForFunction(()=>dashboard.settlementsLayer.getLayers().length === 3);
+        await page.locator('label').filter({has:page.locator('#filter-settlements-radius')}).click();
+        await page.waitForFunction(()=>dashboard.settlementsLayer.getLayers().length === 2);
+        // Typing a population must take effect without cycling the Pop Filter toggle.
+        await page.locator('#clusterRadius').fill('20000');
+        await page.waitForFunction(()=>dashboard.settlementsLayer.getLayers().length === 1);
+        // A layer switched on after the settlements must not cover their symbols:
+        // whatever sits topmost at a symbol's own point is what its click reaches.
+        await page.evaluate(()=>dashboard.renderDeepLayer());
+        await page.waitForFunction(()=>dashboard.deepLayer.getLayers().length > 0);
+        const symbol = await page.evaluate(()=>{
+            const marker = dashboard.settlementsLayer.getLayers()[0];
+            const point = dashboard.map.latLngToContainerPoint(marker.getLatLng());
+            const box = dashboard.map.getContainer().getBoundingClientRect();
+            const at = {x: box.left + point.x, y: box.top + point.y};
+            return {...at, onTop: document.elementFromPoint(at.x, at.y) === marker._path};
+        });
+        assert.ok(symbol.onTop, 'a layer rendered after the settlements covered their symbols');
+        await page.mouse.move(symbol.x, symbol.y);
+        await page.mouse.down();
+        await page.mouse.up();
+        assert.match(await page.locator('.leaflet-popup .settlement-name').first().textContent(), /Smoketown/);
+        await page.locator('#clusterRadius').fill('100');
+        await page.waitForFunction(()=>dashboard.settlementsLayer.getLayers().length === 3);
+        assert.deepEqual(errors,[]);
+
         await page.evaluate(()=>{
             document.getElementById('diff-highlight').checked=false;
             document.getElementById('suriyak-overlay').checked=true;
@@ -124,7 +159,7 @@ const server = http.createServer((req,res) => {
         await game.waitForFunction(()=>window.gameUI && window.L?.version === '1.9.4' && typeof turf.area === 'function');
         assert.deepEqual(errors,[]);
         await game.close();
-        console.log('Browser smoke passed: startup, date controls, comparison, failed fetch/retry, GeoJSON import, tooltip escaping, game startup with CDN dependencies, 4x playback with slow dated layers.');
+        console.log('Browser smoke passed: startup, date controls, comparison, failed fetch/retry, GeoJSON import, tooltip escaping, settlement population filtering and clicks, game startup with CDN dependencies, 4x playback with slow dated layers.');
     } finally {
         await browser?.close();
         if (server.listening) await new Promise(resolve=>server.close(resolve));

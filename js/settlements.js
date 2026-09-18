@@ -99,6 +99,7 @@ class Settlements {
             const style = this.getSettlementStyle(population);
 
             const marker = L.circleMarker([coords[1], coords[0]], {
+                pane: 'settlementMarkers',
                 radius: style.radius,
                 fillColor: style.color,
                 color: '#ffffff',

@@ -168,6 +168,14 @@ class MapLayers {
         heatPane.style.isolation = 'isolate';
         heatPane.style.pointerEvents = 'none';
 
+        // Settlement symbols are point features, so they belong above the
+        // polygon overlays rather than among them. Everything in overlayPane
+        // shares one SVG and paints in insertion order, which let any layer
+        // switched on after the settlements cover them and swallow their
+        // clicks. Between sourceHeat (450) and markerPane (600).
+        const settlementPane = dashboard.map.createPane('settlementMarkers');
+        settlementPane.style.zIndex = 460;
+
         dashboard.markers = MapLayers.makeMarkerLayer(dashboard.markerDisplayMode() === 'cluster');
         dashboard.map.addLayer(dashboard.markers);
 

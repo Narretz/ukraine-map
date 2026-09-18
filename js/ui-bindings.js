@@ -3301,13 +3301,23 @@ class UiBindings {
             }
         });
 
-        dashboard.bindUI('clusterRadius', 'input', () => {
-            if (dashboard.isChecked('filter-settlements-radius') && dashboard.isChecked('settlements-border')) {
+        let clusterRadiusDebounce = null;
+        const applyClusterRadius = () => {
+            clearTimeout(clusterRadiusDebounce);
+            if (!dashboard.isChecked('filter-settlements-radius')) return;
+            dashboard.filterSettlementsByRadius();
+            if (dashboard.isChecked('settlements-border')) {
                 dashboard.settlementBordersLayer.clearLayers();
                 dashboard.renderedBoundaries.clear();
                 dashboard.toggleSettlementBoundaries();
             }
+        };
+        dashboard.bindUI('clusterRadius', 'input', () => {
+            clearTimeout(clusterRadiusDebounce);
+            clusterRadiusDebounce = setTimeout(applyClusterRadius, 400);
         });
+        // Blur and Enter apply straight away rather than waiting out the debounce
+        dashboard.bindUI('clusterRadius', 'change', applyClusterRadius);
 
         dashboard.bindUI('settlements-border', 'change', () => {
             dashboard.toggleSettlementBoundaries();
